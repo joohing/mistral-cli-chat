@@ -38,6 +38,11 @@ fn main() {
     );
     headers.insert("Accept", HeaderValue::from_str("application/json").unwrap());
 
+    let client = Client::builder()
+        .default_headers(headers.clone())
+        .build()
+        .unwrap();
+
     // ---- MAIN LOOP ----
     loop {
         let mut input = String::new();
@@ -61,10 +66,6 @@ fn main() {
             HeaderValue::from_str(stringify!(len(mes))).unwrap(),
         );
 
-        let client = Client::builder()
-            .default_headers(headers.clone())
-            .build()
-            .unwrap();
         let req = client
             .post(COMPLETIONS_URL)
             .body(mes);
