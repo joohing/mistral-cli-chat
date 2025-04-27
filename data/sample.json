@@ -1,0 +1,17 @@
+{
+    "model": "mistral-large-latest",
+    "messages": [
+        {
+            "role": "user",
+            "content": "What is the best French cheese?"
+        },
+        {
+            "role": "assistant",
+            "content": "The camembert, objectively."
+        },
+        {
+            "role": "user",
+            "content": "Are you sure about that? Seems unlikely."
+        }
+    ]
+}
