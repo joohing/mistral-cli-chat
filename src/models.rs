@@ -97,3 +97,36 @@ impl LlmModel {
         }
     }
 }
+
+/// Filetypes are set from the flags passed in to the program. They
+/// help the user tell the LLM the context they are in.
+#[derive(Serialize, Debug, Clone)]
+pub enum FileType {
+    Rust,
+}
+
+#[derive(Debug)]
+pub struct Flags {
+    pub oneshot: bool,
+    pub extension: String,
+}
+
+impl Flags {
+    pub fn from(args: Vec<String>) -> Flags {
+        let mut oneshot = false;
+        for argument in args.into_iter().skip(1) {
+            match argument.as_str() {
+                "-o" => {
+                    oneshot = true;
+                },
+                &_ => {
+                    println!("Warning: unknown argument {}", argument);
+                }
+            }
+        }
+        Flags {
+            oneshot,
+            extension: String::from("hello"),
+        }
+    }
+}

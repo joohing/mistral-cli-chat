@@ -1,12 +1,15 @@
 mod models;
 
+use crate::models::Flags;
 use models::{LlmRequest, LlmResponse, Message};
 use reqwest::{
     blocking::{Client, Response},
     header::{HeaderMap, HeaderValue},
 };
 use std::{
-    fs::File, io::{stdin, Write}, path::Path
+    fs::File,
+    io::{stdin, Write, Read},
+    path::Path,
 };
 
 const API_KEY: &'static str = env!("MISTRAL_API_KEY");
@@ -14,6 +17,8 @@ const COMPLETIONS_URL: &'static str = "https://api.mistral.ai/v1/chat/completion
 
 /// Main loop that makes headers, http client, listens for input on stdin, etc.
 fn main() {
+    let flags = Flags::from(std::env::args().collect());
+
     // ---- LOAD HISTORY ----
     let history_path = String::from(env!("HOME").to_string() + "/.mistral_cli_chat_history");
     let mut messages: Vec<Message> = vec![];
@@ -38,19 +43,36 @@ fn main() {
     );
     headers.insert("Accept", HeaderValue::from_str("application/json").unwrap());
 
-    let client = Client::builder()
+    let mut client = Client::builder()
         .default_headers(headers.clone())
         .build()
         .unwrap();
 
     // ---- MAIN LOOP ----
-    loop {
+    if flags.oneshot {
+        read_input_and_send_req(&mut client, &mut headers, &mut messages, &flags);
+    }
+    else {
+        loop {
+            read_input_and_send_req(&mut client, &mut headers, &mut messages, &flags);
+        }
+    }
+
+    std::fs::write(history_path, serde_json::to_string(&messages).unwrap()).unwrap();
+}
+
+fn read_input_and_send_req(client: &mut Client, headers: &mut HeaderMap, messages: &mut Vec<Message>, flags: &Flags) {
         let mut input = String::new();
-        stdin().read_line(&mut input).expect("Failed to read line");
+        if flags.oneshot {
+            stdin().read_to_string(&mut input).expect("Failed to read all lines into input");
+        }
+        else {
+            stdin().read_line(&mut input).expect("Failed to read line");
+        }
 
         if input == "quit\n".to_string() {
             println!("Writing history to disk and quitting...");
-            break;
+            return;
         }
 
         messages.push(Message {
@@ -66,31 +88,24 @@ fn main() {
             HeaderValue::from_str(stringify!(len(mes))).unwrap(),
         );
 
-        let req = client
-            .post(COMPLETIONS_URL)
-            .body(mes);
+        let req = client.post(COMPLETIONS_URL).body(mes);
 
         match req.send() {
-            Ok(v) => {
-                match handle_received(v) {
-                    Err(e) => {
-                        println!("Unsuccessfully handled response.\n  {:?}", e);
-                        let res2 = client.post(COMPLETIONS_URL);
-                        println!(
-                            "Attempt to print bytes:\n  {:?}",
-                            res2.send().unwrap().bytes()
-                        );
-                    }
-                    Ok(new_messages) => messages.extend(new_messages.clone()),
+            Ok(v) => match handle_received(v) {
+                Err(e) => {
+                    println!("Unsuccessfully handled response.\n  {:?}", e);
+                    let res2 = client.post(COMPLETIONS_URL);
+                    println!(
+                        "Attempt to print bytes:\n  {:?}",
+                        res2.send().unwrap().bytes()
+                    );
                 }
-            }
+                Ok(new_messages) => messages.extend(new_messages.clone()),
+            },
             Err(e) => {
                 println!("Unsuccessful request.\n  {:?}", e);
             }
         }
-    }
-
-    std::fs::write(history_path, serde_json::to_string(&messages).unwrap()).unwrap();
 }
 
 /// Upon receiving a response via HTTP, this method is used to parse it into the models
