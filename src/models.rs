@@ -100,28 +100,31 @@ impl LlmModel {
 
 #[derive(Debug)]
 pub struct Args {
-    pub conversation: bool,
     pub long: bool,
+    pub extended: bool,
     pub help: bool,
     pub llm_input: Vec<String>,
+    pub context: bool,
 }
 
 impl Args {
     pub fn from(args: Vec<String>) -> Args {
         let mut a = Args {
-            conversation: false,
             long: false,
+            extended: false,
             help: false,
             llm_input: Vec::with_capacity(args.len()),
+            context: false,
         };
         for argument in args.into_iter().skip(1) {
             let arg = argument.as_str();
             match arg {
-                "-c" | "--conv" => a.conversation = true,
                 "-l" | "--long" => a.long = true,
+                "-e" | "--extended" => a.extended = true,
                 "-h" | "--help" => a.help = true,
+                "-c" | "--context" => a.context = true,
                 val if val.starts_with('-') => {
-                    println!("Warning: unknown argument {}, ignoring", argument);
+                    println!("Warning: ignoring unknown argument {}", argument);
                 }
                 &_ => a.llm_input.push(arg.to_string()),
             }
