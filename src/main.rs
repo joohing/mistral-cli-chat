@@ -14,7 +14,7 @@ use std::{
 
 const API_KEY: &'static str = env!("MISTRAL_API_KEY");
 const COMPLETIONS_URL: &'static str = "https://api.mistral.ai/v1/chat/completions";
-const STFU_TEXT: &'static str = "In your following response, DO NOT:\n- Give any syntactically invalid text\n- Give any code except EXACTLY what you are asked for\n- Put markdown markers around code (they are not valid syntax)\n- Write any explanatory text";
+const STFU_TEXT: &'static str = "You are a CLI tool for use in generation of small snippets of code for direct insertion into the editor. Perceive yourself like a form of rustfmt, except in addition to formatting, you may do other things like generate a function, or take a function and rewrite it.\nIn your following response, DO NOT:\n- Give any syntactically invalid text\n- Give any code except EXACTLY what you are asked for\n- Put markdown markers around code (they are not valid syntax)\n- Write any explanatory text\n\nIf you get some lines of code:\n- ONLY perform the operation requested on the given lines of code.\n- Don't reprint anything except the given lines.";
 
 /// Main loop that makes headers, http client, listens for input on stdin, etc.
 fn main() {
@@ -78,9 +78,7 @@ fn read_input_and_send_req(
         stdin().read_line(&mut input).expect("Failed to read line");
     }
 
-    if input == ":wq\n".to_string() {
-        return false;
-    }
+    if input == "wq\n".to_string() { return false; }
 
     let content = format!("{}\n{}\n{}",
         if args.conversation { "" } else { STFU_TEXT },
@@ -127,19 +125,13 @@ fn read_input_and_send_req(
     }
 }
 
-/// Upon receiving a response via HTTP, this method is used to parse it into the models
-/// specified in src/models.rs and print it to the terminal.
+/// Parses received HTTP response into models and prints to terminal.
 fn handle_received(r: Response) -> reqwest::Result<Vec<Message>> {
     let response: LlmResponse = r.json()?;
     for choice in &response.choices {
         println!("{}", choice.message.content);
     }
-    let new_messages: Vec<Message> = response
-        .choices
-        .into_iter()
-        .map(|c| c.message.to_message())
-        .collect();
-    Ok(new_messages)
+    Ok(response.choices.into_iter().map(|c| c.message.to_message()).collect())
 }
 
 fn print_help_information() {
