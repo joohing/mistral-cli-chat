@@ -1,6 +1,6 @@
 mod models;
 
-use crate::models::Flags;
+use crate::models::Args;
 use models::{LlmRequest, LlmResponse, Message};
 use reqwest::{
     blocking::{Client, Response},
@@ -8,16 +8,21 @@ use reqwest::{
 };
 use std::{
     fs::File,
-    io::{stdin, Write, Read},
+    io::{stdin, Read, Write},
     path::Path,
 };
 
 const API_KEY: &'static str = env!("MISTRAL_API_KEY");
 const COMPLETIONS_URL: &'static str = "https://api.mistral.ai/v1/chat/completions";
+const STFU_TEXT: &'static str = "In your following response, DO NOT:\n- Give any syntactically invalid text\n- Give any code except EXACTLY what you are asked for\n- Put markdown markers around code (they are not valid syntax)\n- Write any explanatory text";
 
 /// Main loop that makes headers, http client, listens for input on stdin, etc.
 fn main() {
-    let flags = Flags::from(std::env::args().collect());
+    let args = Args::from(std::env::args().collect());
+    if args.help {
+        print_help_information();
+        return;
+    }
 
     // ---- LOAD HISTORY ----
     let history_path = String::from(env!("HOME").to_string() + "/.mistral_cli_chat_history");
@@ -49,63 +54,77 @@ fn main() {
         .unwrap();
 
     // ---- MAIN LOOP ----
-    if flags.oneshot {
-        read_input_and_send_req(&mut client, &mut headers, &mut messages, &flags);
-    }
-    else {
-        loop {
-            read_input_and_send_req(&mut client, &mut headers, &mut messages, &flags);
-        }
-    }
+    while (read_input_and_send_req(&mut client, &mut headers, &mut messages, &args)) {}
 
+    // If not in conversation it's probably gonna be pretty annoying that it prints this message lol
+    if args.conversation {
+        println!("Writing history to disk and quitting...");
+    }
     std::fs::write(history_path, serde_json::to_string(&messages).unwrap()).unwrap();
 }
 
-fn read_input_and_send_req(client: &mut Client, headers: &mut HeaderMap, messages: &mut Vec<Message>, flags: &Flags) {
-        let mut input = String::new();
-        if flags.oneshot {
-            stdin().read_to_string(&mut input).expect("Failed to read all lines into input");
-        }
-        else {
-            stdin().read_line(&mut input).expect("Failed to read line");
-        }
+fn read_input_and_send_req(
+    client: &mut Client,
+    headers: &mut HeaderMap,
+    messages: &mut Vec<Message>,
+    args: &Args,
+) -> bool {
+    let mut input = String::new();
+    if args.long || !args.conversation {
+        stdin()
+            .read_to_string(&mut input)
+            .expect("Failed to read all lines into input");
+    } else {
+        stdin().read_line(&mut input).expect("Failed to read line");
+    }
 
-        if input == "quit\n".to_string() {
-            println!("Writing history to disk and quitting...");
-            return;
-        }
+    if input == ":wq\n".to_string() {
+        return false;
+    }
 
-        messages.push(Message {
-            role: String::from("user"),
-            content: input.clone(),
-        });
+    let content = format!("{}\n{}\n{}",
+        if args.conversation { "" } else { STFU_TEXT },
+        args.llm_input.join(" "),
+        input.clone()
+    );
 
-        let llm_req = LlmRequest::from_messages(&messages);
-        let mes = serde_json::to_string(&llm_req).expect("Couldn't serialize request");
+    messages.push(Message {
+        role: String::from("user"),
+        content,
+    });
 
-        let _ = headers.insert(
-            "Content-Length",
-            HeaderValue::from_str(stringify!(len(mes))).unwrap(),
-        );
+    let llm_req = LlmRequest::from_messages(&messages);
+    let mes = serde_json::to_string(&llm_req).expect("Couldn't serialize request");
 
-        let req = client.post(COMPLETIONS_URL).body(mes);
+    let _ = headers.insert(
+        "Content-Length",
+        HeaderValue::from_str(stringify!(len(mes))).unwrap(),
+    );
 
-        match req.send() {
-            Ok(v) => match handle_received(v) {
-                Err(e) => {
-                    println!("Unsuccessfully handled response.\n  {:?}", e);
-                    let res2 = client.post(COMPLETIONS_URL);
-                    println!(
-                        "Attempt to print bytes:\n  {:?}",
-                        res2.send().unwrap().bytes()
-                    );
-                }
-                Ok(new_messages) => messages.extend(new_messages.clone()),
-            },
+    let req = client.post(COMPLETIONS_URL).body(mes);
+
+    match req.send() {
+        Ok(v) => match handle_received(v) {
             Err(e) => {
-                println!("Unsuccessful request.\n  {:?}", e);
+                println!("Unsuccessfully handled response.\n  {:?}", e);
+                let res2 = client.post(COMPLETIONS_URL);
+                println!(
+                    "Attempt to print bytes:\n  {:?}",
+                    res2.send().unwrap().bytes()
+                );
             }
+            Ok(new_messages) => messages.extend(new_messages.clone()),
+        },
+        Err(e) => {
+            println!("Unsuccessful request.\n  {:?}", e);
         }
+    }
+
+    if args.conversation {
+        true
+    } else {
+        false
+    }
 }
 
 /// Upon receiving a response via HTTP, this method is used to parse it into the models
@@ -121,4 +140,19 @@ fn handle_received(r: Response) -> reqwest::Result<Vec<Message>> {
         .map(|c| c.message.to_message())
         .collect();
     Ok(new_messages)
+}
+
+fn print_help_information() {
+    print!(
+        r#"
+mistral-cli: Sends queries from the terminal. Persistent conversation history saved in `~/.mistral_cli_chat_history`.
+
+Uses different flags to specify the way to treat input.
+By default: reads until EOF, gets a response, and exits after saving to history.
+
+Possible flags:
+    [-c|--conv]         =>      Don't exit after one message, and send one message per newline.
+    [-l|--long]         =>      When using `--conv`, wait for an EOF character ^D before sending.
+    [-h|--help]         =>      Print this help message."#
+    );
 }

@@ -98,35 +98,34 @@ impl LlmModel {
     }
 }
 
-/// Filetypes are set from the flags passed in to the program. They
-/// help the user tell the LLM the context they are in.
-#[derive(Serialize, Debug, Clone)]
-pub enum FileType {
-    Rust,
-}
-
 #[derive(Debug)]
-pub struct Flags {
-    pub oneshot: bool,
-    pub extension: String,
+pub struct Args {
+    pub conversation: bool,
+    pub long: bool,
+    pub help: bool,
+    pub llm_input: Vec<String>,
 }
 
-impl Flags {
-    pub fn from(args: Vec<String>) -> Flags {
-        let mut oneshot = false;
+impl Args {
+    pub fn from(args: Vec<String>) -> Args {
+        let mut a = Args {
+            conversation: false,
+            long: false,
+            help: false,
+            llm_input: Vec::with_capacity(args.len()),
+        };
         for argument in args.into_iter().skip(1) {
-            match argument.as_str() {
-                "-o" => {
-                    oneshot = true;
-                },
-                &_ => {
-                    println!("Warning: unknown argument {}", argument);
+            let arg = argument.as_str();
+            match arg {
+                "-c" | "--conv" => a.conversation = true,
+                "-l" | "--long" => a.long = true,
+                "-h" | "--help" => a.help = true,
+                val if val.starts_with('-') => {
+                    println!("Warning: unknown argument {}, ignoring", argument);
                 }
+                &_ => a.llm_input.push(arg.to_string()),
             }
         }
-        Flags {
-            oneshot,
-            extension: String::from("hello"),
-        }
+        a
     }
 }
